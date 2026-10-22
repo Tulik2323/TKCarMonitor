@@ -1,0 +1,15 @@
+# Node
+server/node_modules/
+server/data/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+
+# OS / editors
+.DS_Store
+.vscode/

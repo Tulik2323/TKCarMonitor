@@ -1,0 +1,14 @@
+{
+  "name": "tkcarmonitor-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Receives driving events from the in-car Android device and serves the dashboard.",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  }
+}

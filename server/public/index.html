@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ניטור נהיגה</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>ניטור נהיגה</h1>
+    <div id="connection" class="pill">לא מחובר</div>
+  </header>
+
+  <section id="login" class="card hidden">
+    <h2>כניסה</h2>
+    <form id="login-form">
+      <input id="token-input" type="password" placeholder="סיסמת דשבורד" autocomplete="current-password" required>
+      <button type="submit">כניסה</button>
+    </form>
+    <p id="login-error" class="error hidden">הסיסמה שגויה</p>
+  </section>
+
+  <main id="app" class="hidden">
+    <section class="card status">
+      <div><span class="label">דיווח אחרון</span><span id="last-seen">—</span></div>
+      <div><span class="label">סוללת מכשיר</span><span id="battery">—</span></div>
+      <div><span class="label">GPS אחרון</span><span id="last-fix">—</span></div>
+      <button id="logout" class="link">התנתק</button>
+    </section>
+
+    <section class="card">
+      <div id="map"></div>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <h2>אירועים</h2>
+        <select id="filter">
+          <option value="">הכל</option>
+          <option value="hard_brake">בלימה פתאומית</option>
+          <option value="hard_accel">האצה חזקה</option>
+          <option value="sharp_turn">פנייה חדה / החלקה</option>
+          <option value="speeding">מהירות מעל הגבול</option>
+          <option value="crash">תאונה / פגיעה</option>
+        </select>
+      </div>
+      <ul id="events" class="events"></ul>
+      <p id="empty" class="hidden">אין אירועים להצגה</p>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
