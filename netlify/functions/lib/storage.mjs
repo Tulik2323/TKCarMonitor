@@ -28,13 +28,12 @@ export function createStorage(blobs) {
     return (await blobs.get(key, { type: 'json' })) ?? [];
   }
 
-  async function readRange(prefix, sinceTs) {
-    const nowTs = Date.now();
+  async function readRange(prefix, sinceTs, untilTs) {
     const rows = [];
-    for (const day of daysBetween(sinceTs, nowTs)) {
+    for (const day of daysBetween(sinceTs, untilTs)) {
       rows.push(...(await readDay(`${prefix}/${day}`)));
     }
-    return rows.filter((r) => r.ts >= sinceTs).sort((a, b) => a.ts - b.ts);
+    return rows.filter((r) => r.ts >= sinceTs && r.ts <= untilTs).sort((a, b) => a.ts - b.ts);
   }
 
   // Appends rows to their day blobs, skipping any whose key is already stored.
@@ -73,8 +72,8 @@ export function createStorage(blobs) {
     setStatus: (status) => blobs.setJSON(STATUS_KEY, { ...status, receivedAt: Date.now() }),
     readStatus: async () => (await blobs.get(STATUS_KEY, { type: 'json' })) ?? null,
 
-    readEvents: (sinceTs) => readRange('events', sinceTs),
-    readPositions: (sinceTs) => readRange('positions', sinceTs),
+    readEvents: (sinceTs, untilTs = Date.now()) => readRange('events', sinceTs, untilTs),
+    readPositions: (sinceTs, untilTs = Date.now()) => readRange('positions', sinceTs, untilTs),
 
     // Deletes day blobs older than the retention window. Returns how many blobs were removed.
     async prune(retentionDays, nowTs = Date.now()) {

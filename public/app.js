@@ -12,8 +12,10 @@ const TOKEN_KEY = 'tkcarmonitor.token';
 const POLL_MS = 30_000;
 const $ = (id) => document.getElementById(id);
 
+// day is null in live mode (today, polled every 30 seconds), otherwise a "YYYY-MM-DD" string.
 const state = {
   token: null,
+  day: null,
   events: [],
   positions: [],
   status: null,
@@ -55,8 +57,27 @@ async function sync(params = {}) {
   return res.json();
 }
 
+// Local date as "YYYY-MM-DD" (not UTC, so "today" matches the user's clock).
+function localDayString(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// Start and end (inclusive) of a local calendar day, in epoch ms.
+function dayBounds(dayString) {
+  const [y, m, d] = dayString.split('-').map(Number);
+  const start = new Date(y, m - 1, d);
+  const end = new Date(y, m - 1, d + 1);
+  return { from: start.getTime(), to: end.getTime() - 1 };
+}
+
 function formatTime(ts) {
   return new Date(ts).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'medium' });
+}
+
+function formatDay(dayString) {
+  const [y, m, d] = dayString.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('he-IL', { dateStyle: 'long' });
 }
 
 function describe(e) {
@@ -95,7 +116,16 @@ function renderEvents() {
 }
 
 function renderMap() {
-  if (!state.map || state.positions.length === 0) return;
+  if (!state.map) return;
+  const hasPositions = state.positions.length > 0;
+  $('map-empty').classList.toggle('hidden', hasPositions);
+  if (!hasPositions) {
+    state.track.setLatLngs([]);
+    if (state.marker) state.marker.remove();
+    state.marker = null;
+    return;
+  }
+
   const points = state.positions.map((p) => [p.lat, p.lon]);
   state.track.setLatLngs(points);
   const last = points[points.length - 1];
@@ -104,7 +134,13 @@ function renderMap() {
   } else {
     state.marker.setLatLng(last);
   }
-  state.map.setView(last, 15);
+
+  if (state.day) {
+    // A past day shows its whole route, not just the last point.
+    state.map.fitBounds(state.track.getBounds(), { padding: [24, 24], maxZoom: 15 });
+  } else {
+    state.map.setView(last, 15);
+  }
 }
 
 function renderStatus() {
@@ -119,6 +155,11 @@ function renderStatus() {
   $('connection').classList.toggle('online', online);
 }
 
+function renderDayLabel() {
+  $('day-label').textContent = state.day ? formatDay(state.day) : 'היום (בזמן אמת)';
+  $('today').classList.toggle('hidden', !state.day);
+}
+
 // Adds new rows, skipping ones already shown (the same event can come back in two polls).
 function merge(current, incoming, keyOf) {
   const seen = new Set(current.map(keyOf));
@@ -126,13 +167,27 @@ function merge(current, incoming, keyOf) {
   return [...fresh, ...current];
 }
 
-function applySync(data) {
-  state.events = merge(state.events, data.events, (e) => e.id).sort((a, b) => b.ts - a.ts);
-  state.positions = merge(state.positions, data.positions, (p) => p.ts).sort((a, b) => a.ts - b.ts);
-  if (data.status) state.status = data.status;
+function render() {
+  state.events = state.events.sort((a, b) => b.ts - a.ts);
+  state.positions = state.positions.sort((a, b) => a.ts - b.ts);
   renderEvents();
   renderStatus();
   renderMap();
+  renderDayLabel();
+}
+
+function applyLive(data) {
+  state.events = merge(state.events, data.events, (e) => e.id);
+  state.positions = merge(state.positions, data.positions, (p) => p.ts);
+  if (data.status) state.status = data.status;
+  render();
+}
+
+function applyDay(data) {
+  state.events = data.events;
+  state.positions = data.positions;
+  if (data.status) state.status = data.status;
+  render();
 }
 
 async function poll() {
@@ -141,7 +196,7 @@ async function poll() {
   const newestPosition = state.positions[state.positions.length - 1];
   if (newestEvent) params.eventsSince = newestEvent.ts + 1;
   if (newestPosition) params.positionsSince = newestPosition.ts + 1;
-  applySync(await sync(params));
+  applyLive(await sync(params));
 }
 
 function startPolling() {
@@ -158,6 +213,26 @@ function stopPolling() {
   state.timer = null;
 }
 
+// Switches to live mode (today) and starts polling.
+async function showLive() {
+  state.day = null;
+  state.events = [];
+  state.positions = [];
+  $('day').value = localDayString();
+  $('day').max = localDayString();
+  applyLive(await sync());
+  startPolling();
+}
+
+// Shows one past day. No polling: the data for a past day does not change.
+async function showDay(dayString) {
+  if (dayString === localDayString()) return showLive();
+  stopPolling();
+  state.day = dayString;
+  const { from, to } = dayBounds(dayString);
+  applyDay(await sync({ from, to }));
+}
+
 function showApp() {
   $('login').classList.add('hidden');
   $('app').classList.remove('hidden');
@@ -171,13 +246,14 @@ function showApp() {
   }
 }
 
-// Returns true when the token is accepted. The first sync loads 14 days of events and 24 hours of track.
+// Returns true when the token is accepted.
 async function login(token) {
   state.token = token;
   try {
-    applySync(await sync());
+    await showLive();
   } catch (err) {
     state.token = null;
+    stopPolling();
     if (err.message === 'server-not-configured') {
       $('login-error').textContent = 'השרת עוד לא הוגדר (חסר DASHBOARD_TOKEN)';
     } else {
@@ -188,7 +264,6 @@ async function login(token) {
   }
   saveToken(token);
   showApp();
-  startPolling();
   return true;
 }
 
@@ -208,6 +283,12 @@ $('login-form').addEventListener('submit', async (ev) => {
 
 $('logout').addEventListener('click', logout);
 $('filter').addEventListener('change', renderEvents);
+$('day').addEventListener('change', (ev) => {
+  if (ev.target.value) showDay(ev.target.value).catch(() => {});
+});
+$('today').addEventListener('click', () => {
+  showLive().catch(() => {});
+});
 
 (async function init() {
   const saved = loadToken();

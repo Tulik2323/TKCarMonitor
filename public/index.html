@@ -30,8 +30,20 @@
       <button id="logout" class="link">התנתק</button>
     </section>
 
+    <section class="card day-picker">
+      <div>
+        <h2>תאריך</h2>
+        <span id="day-label" class="label">היום (בזמן אמת)</span>
+      </div>
+      <div class="day-controls">
+        <input id="day" type="date" aria-label="בחירת תאריך">
+        <button id="today" type="button" class="link hidden">חזרה להיום</button>
+      </div>
+    </section>
+
     <section class="card">
       <div id="map"></div>
+      <p id="map-empty" class="hidden">אין מיקומים ביום הזה</p>
     </section>
 
     <section class="card">

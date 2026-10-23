@@ -59,19 +59,24 @@ async function handleTelemetry(req, { storage, deviceToken }) {
   });
 }
 
-// One dashboard request returns everything newer than the two cut-off timestamps.
-// The dashboard calls it first with a full window, then every 30 seconds with the newest timestamp seen.
+// One dashboard request returns events, positions and status for a time window.
+// - Live view: the first call uses the defaults; later polls pass eventsSince / positionsSince.
+// - Past day: the dashboard passes from and to, which apply to both events and positions.
 async function handleSync(req, url, { storage, dashboardToken, retentionDays }) {
   const denied = checkAuth(req, dashboardToken);
   if (denied) return denied;
 
   const now = Date.now();
-  const eventsSince = Number(url.searchParams.get('eventsSince')) || now - retentionDays * DAY_MS;
-  const positionsSince = Number(url.searchParams.get('positionsSince')) || now - DEFAULT_POSITION_HOURS * 60 * 60 * 1000;
+  const from = Number(url.searchParams.get('from')) || 0;
+  const to = Number(url.searchParams.get('to')) || now;
+  if (from > to) return json(400, { error: 'from must be before to' });
+
+  const eventsSince = from || Number(url.searchParams.get('eventsSince')) || now - retentionDays * DAY_MS;
+  const positionsSince = from || Number(url.searchParams.get('positionsSince')) || now - DEFAULT_POSITION_HOURS * 60 * 60 * 1000;
 
   const [events, positions, status] = await Promise.all([
-    storage.readEvents(eventsSince),
-    storage.readPositions(positionsSince),
+    storage.readEvents(eventsSince, to),
+    storage.readPositions(positionsSince, to),
     storage.readStatus(),
   ]);
   return json(200, { events, positions, status });

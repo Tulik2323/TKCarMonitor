@@ -82,6 +82,17 @@ h2 { font-size: 1.1rem; margin: 0 0 8px; }
 
 #map { height: 320px; border-radius: 8px; }
 
+.day-picker {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.day-picker h2 { margin-bottom: 2px; }
+.day-controls { display: flex; align-items: center; gap: 12px; }
+.day-controls button.link { padding: 0; }
+
 .toolbar {
   display: flex;
   justify-content: space-between;

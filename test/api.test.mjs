@@ -188,6 +188,33 @@ test('prune deletes day blobs older than the retention window and keeps recent o
   assert.deepEqual(body.events.map((e) => e.id), ['recent']);
 });
 
+test('sync with from and to returns only that window for events and positions', async () => {
+  const { call } = setup();
+  const now = Date.now();
+  const dayAgo = now - DAY;
+  await call('POST', '/api/telemetry', {
+    token: DEVICE,
+    body: {
+      events: [event({ id: 'yesterday', ts: dayAgo }), event({ id: 'now', ts: now - 1000 })],
+      positions: [
+        { ts: dayAgo, lat: 1, lon: 1, speedKmh: 0 },
+        { ts: now - 1000, lat: 2, lon: 2, speedKmh: 0 },
+      ],
+    },
+  });
+  const from = dayAgo - 1000;
+  const to = dayAgo + 1000;
+  const body = await (await call('GET', `/api/sync?from=${from}&to=${to}`, { token: DASHBOARD })).json();
+  assert.deepEqual(body.events.map((e) => e.id), ['yesterday']);
+  assert.equal(body.positions.length, 1);
+});
+
+test('sync rejects a window where from is after to', async () => {
+  const { call } = setup();
+  const res = await call('GET', '/api/sync?from=2000&to=1000', { token: DASHBOARD });
+  assert.equal(res.status, 400);
+});
+
 test('unknown paths return 404', async () => {
   const { call } = setup();
   assert.equal((await call('GET', '/api/nope', { token: DASHBOARD })).status, 404);
