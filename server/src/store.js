@@ -4,6 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const MAX_IN_MEMORY = 50000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_RETENTION_DAYS = 14;
+
+function writeJsonLines(file, rows) {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, rows.map((row) => JSON.stringify(row) + '\n').join(''));
+  fs.renameSync(tmp, file);
+}
 
 function readJsonLines(file) {
   if (!fs.existsSync(file)) return [];
@@ -20,8 +28,9 @@ function readJsonLines(file) {
 }
 
 class Store {
-  constructor(dataDir) {
+  constructor(dataDir, { retentionDays = DEFAULT_RETENTION_DAYS } = {}) {
     fs.mkdirSync(dataDir, { recursive: true });
+    this.retentionMs = retentionDays * DAY_MS;
     this.eventsFile = path.join(dataDir, 'events.jsonl');
     this.positionsFile = path.join(dataDir, 'positions.jsonl');
     this.statusFile = path.join(dataDir, 'status.json');
@@ -61,6 +70,23 @@ class Store {
       this.positions.splice(0, this.positions.length - MAX_IN_MEMORY);
     }
     return positions;
+  }
+
+  // Drops events and positions older than the retention window and rewrites the files.
+  // Returns how many rows were removed.
+  prune(now = Date.now()) {
+    const cutoff = now - this.retentionMs;
+    const keptEvents = this.events.filter((e) => e.ts >= cutoff);
+    const keptPositions = this.positions.filter((p) => p.ts >= cutoff);
+    const removed = this.events.length - keptEvents.length + this.positions.length - keptPositions.length;
+    if (removed === 0) return 0;
+
+    this.events = keptEvents;
+    this.eventIds = new Set(keptEvents.map((e) => e.id));
+    this.positions = keptPositions;
+    writeJsonLines(this.eventsFile, this.events);
+    writeJsonLines(this.positionsFile, this.positions);
+    return removed;
   }
 
   setStatus(status) {

@@ -15,7 +15,11 @@ if (!deviceToken || !dashboardToken) {
 const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const port = Number(process.env.PORT) || 8080;
 
-const store = new Store(dataDir);
+const retentionDays = Number(process.env.RETENTION_DAYS) || 14;
+
+const store = new Store(dataDir, { retentionDays });
+store.prune();
+setInterval(() => store.prune(), 60 * 60 * 1000).unref();
 const server = createApp({
   deviceToken,
   dashboardToken,

@@ -159,6 +159,30 @@ test('static files are served and path traversal is blocked', async () => {
   }
 });
 
+test('prune removes events and positions older than the retention window', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tkcm-'));
+  const store = new Store(dataDir, { retentionDays: 14 });
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  store.addEvents([
+    event({ id: 'old', ts: now - 15 * day }),
+    event({ id: 'recent', ts: now - 13 * day }),
+  ]);
+  store.addPositions([
+    { ts: now - 15 * day, lat: 1, lon: 1, speedKmh: 0 },
+    { ts: now - 1 * day, lat: 1, lon: 1, speedKmh: 0 },
+  ]);
+
+  assert.equal(store.prune(now), 2);
+  assert.deepEqual(store.listEvents().map((e) => e.id), ['recent']);
+  assert.equal(store.listPositions().length, 1);
+
+  // The pruned state is what a restart sees, and the old id can be stored again.
+  const reopened = new Store(dataDir, { retentionDays: 14 });
+  assert.deepEqual(reopened.listEvents().map((e) => e.id), ['recent']);
+  assert.equal(reopened.positions.length, 1);
+});
+
 test('store survives a restart with the same data directory', async () => {
   const s = await startServer();
   await post(s.base, DEVICE, { events: [event({ id: 'persist' })] });
