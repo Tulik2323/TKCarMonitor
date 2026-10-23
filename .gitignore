@@ -1,6 +1,4 @@
 # Node
-server/node_modules/
-server/data/
 
 # Android / Gradle
 android/.gradle/
@@ -13,3 +11,4 @@ android/.idea/
 # OS / editors
 .DS_Store
 .vscode/
+node_modules/
