@@ -42,24 +42,73 @@ class DrivingDetectorTest {
     @Test
     fun crashRequiresLinearAccelerationAboveFourG() {
         val d = DrivingDetector()
-        assertTrue(d.onLinearAcceleration(0, 3.0 * GRAVITY).isEmpty())
+        d.onLocation(0, 32.0, 34.0, 15.0)
+        assertTrue(d.onLinearAcceleration(500, 3.0 * GRAVITY).isEmpty())
         val events = d.onLinearAcceleration(1_000, 4.5 * GRAVITY)
         assertEquals(listOf("crash"), d.types(events))
+        assertEquals(54.0, events[0].speedKmh!!, 0.001)
     }
 
     @Test
-    fun sharpTurnUsesSpeedTimesYawRate() {
+    fun phoneBumpWhileParkedIsNotACrash() {
         val d = DrivingDetector()
-        d.onGyro(0.3) // 15 m/s * 0.3 rad/s = 4.5 m/s², above 0.35g
-        val events = d.onLocation(0, 32.0, 34.0, 15.0)
+        d.onLocation(0, 32.0, 34.0, 0.0)
+        assertTrue(d.onLinearAcceleration(1_000, 6.0 * GRAVITY).isEmpty())
+    }
+
+    @Test
+    fun crashIsIgnoredWhenTheSpeedFixIsStale() {
+        val d = DrivingDetector()
+        d.onLocation(0, 32.0, 34.0, 15.0)
+        assertTrue(d.onLinearAcceleration(10_000, 6.0 * GRAVITY).isEmpty())
+    }
+
+    @Test
+    fun crashWithoutAnyFixIsIgnored() {
+        val d = DrivingDetector()
+        assertTrue(d.onLinearAcceleration(0, 6.0 * GRAVITY).isEmpty())
+    }
+
+    @Test
+    fun sharpTurnUsesGpsHeadingChange() {
+        val d = DrivingDetector()
+        d.onLocation(0, 32.0, 34.0, 15.0, bearingDeg = 0.0)
+        // 20 degrees in one second at 15 m/s is about 5.2 m/s², above 0.35g.
+        val events = d.onLocation(1_000, 32.0, 34.0, 15.0, bearingDeg = 20.0)
         assertEquals(listOf("sharp_turn"), d.types(events))
+    }
+
+    @Test
+    fun drivingStraightIsNotASharpTurn() {
+        val d = DrivingDetector()
+        d.onLocation(0, 32.0, 34.0, 15.0, bearingDeg = 90.0)
+        assertTrue(d.onLocation(1_000, 32.0, 34.0, 15.0, bearingDeg = 92.0).none { it.type == "sharp_turn" })
+    }
+
+    @Test
+    fun headingWrapsAroundNorth() {
+        val d = DrivingDetector()
+        d.onLocation(0, 32.0, 34.0, 15.0, bearingDeg = 350.0)
+        // 350 -> 10 is a 20 degree turn, not a 340 degree one.
+        val events = d.onLocation(1_000, 32.0, 34.0, 15.0, bearingDeg = 10.0)
+        assertEquals(listOf("sharp_turn"), d.types(events))
+    }
+
+    @Test
+    fun turnWithoutBearingIsIgnored() {
+        val d = DrivingDetector()
+        d.onLocation(0, 32.0, 34.0, 15.0)
+        assertTrue(d.onLocation(1_000, 32.0, 34.0, 15.0).none { it.type == "sharp_turn" })
     }
 
     @Test
     fun repeatedSignalsInsideCooldownAreMerged() {
         val d = DrivingDetector()
+        d.onLocation(0, 32.0, 34.0, 15.0)
         assertEquals(1, d.onLinearAcceleration(0, 50.0).size)
+        d.onLocation(5_000, 32.0, 34.0, 15.0)
         assertTrue(d.onLinearAcceleration(5_000, 50.0).isEmpty())
+        d.onLocation(20_000, 32.0, 34.0, 15.0)
         assertEquals(1, d.onLinearAcceleration(20_000, 50.0).size)
     }
 

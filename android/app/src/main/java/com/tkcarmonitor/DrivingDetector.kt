@@ -13,6 +13,8 @@ data class Thresholds(
     val speedLimitKmh: Double = 110.0,
     val minSpeedMps: Double = 5.0,
     val cooldownMs: Long = 10_000L,
+    // A crash is only trusted if the car was really moving, and the speed is recent.
+    val maxFixAgeMs: Long = 3_000L,
 )
 
 data class DrivingEvent(
@@ -26,27 +28,28 @@ data class DrivingEvent(
 )
 
 /**
- * Turns raw GPS fixes, gyroscope and linear-acceleration readings into driving events.
+ * Turns GPS fixes and linear-acceleration readings into driving events.
  * Pure Kotlin on purpose: no Android types, so it can be unit-tested on the JVM.
  * Not thread-safe: feed it from a single thread.
  */
 class DrivingDetector(private val thresholds: Thresholds = Thresholds()) {
 
-    private data class Fix(val ts: Long, val lat: Double, val lon: Double, val speedMps: Double)
+    private data class Fix(val ts: Long, val lat: Double, val lon: Double, val speedMps: Double, val bearingDeg: Double?)
 
     private var lastFix: Fix? = null
-    private var yawRateRadPerSec = 0.0
     private var overLimit = false
     private val lastEmittedAt = mutableMapOf<String, Long>()
 
-    fun onGyro(zRadPerSec: Double) {
-        yawRateRadPerSec = zRadPerSec
-    }
-
-    fun onLocation(ts: Long, lat: Double, lon: Double, speedMps: Double): List<DrivingEvent> {
+    fun onLocation(
+        ts: Long,
+        lat: Double,
+        lon: Double,
+        speedMps: Double,
+        bearingDeg: Double? = null,
+    ): List<DrivingEvent> {
         val out = mutableListOf<DrivingEvent>()
         val prev = lastFix
-        lastFix = Fix(ts, lat, lon, speedMps)
+        lastFix = Fix(ts, lat, lon, speedMps, bearingDeg)
         val kmh = speedMps * 3.6
 
         // Speeding is edge-triggered: one event per excursion above the limit.
@@ -56,41 +59,46 @@ class DrivingDetector(private val thresholds: Thresholds = Thresholds()) {
         }
         overLimit = above
 
-        if (prev != null && speedMps >= thresholds.minSpeedMps) {
-            val dtSec = (ts - prev.ts) / 1000.0
-            // Ignore gaps that are too short to measure or too long to trust.
-            if (dtSec in 0.5..5.0) {
-                val accel = (speedMps - prev.speedMps) / dtSec
-                if (accel <= -thresholds.hardBrakeMps2) {
-                    emit(out, "hard_brake", ts, lat, lon, kmh, abs(accel))
-                } else if (accel >= thresholds.hardAccelMps2) {
-                    emit(out, "hard_accel", ts, lat, lon, kmh, accel)
-                }
-            }
-        }
+        if (prev == null) return out
+        val dtSec = (ts - prev.ts) / 1000.0
+        // Ignore gaps that are too short to measure or too long to trust.
+        if (dtSec !in 0.5..5.0) return out
 
-        // Lateral acceleration = speed * yaw rate.
-        val lateral = abs(speedMps * yawRateRadPerSec)
-        if (speedMps >= thresholds.minSpeedMps && lateral >= thresholds.sharpTurnMps2) {
-            emit(out, "sharp_turn", ts, lat, lon, kmh, lateral)
+        if (speedMps >= thresholds.minSpeedMps) {
+            val accel = (speedMps - prev.speedMps) / dtSec
+            if (accel <= -thresholds.hardBrakeMps2) {
+                emit(out, "hard_brake", ts, lat, lon, kmh, abs(accel))
+            } else if (accel >= thresholds.hardAccelMps2) {
+                emit(out, "hard_accel", ts, lat, lon, kmh, accel)
+            }
+
+            // Lateral acceleration = speed * turn rate, where the turn rate is the change of
+            // GPS heading. This does not depend on how the phone sits in its holder.
+            val turnRate = headingChangeRadPerSec(prev.bearingDeg, bearingDeg, dtSec)
+            if (turnRate != null && speedMps * turnRate >= thresholds.sharpTurnMps2) {
+                emit(out, "sharp_turn", ts, lat, lon, kmh, speedMps * turnRate)
+            }
         }
         return out
     }
 
     fun onLinearAcceleration(ts: Long, magnitudeMps2: Double): List<DrivingEvent> {
         if (magnitudeMps2 < thresholds.crashMps2) return emptyList()
+        val fix = lastFix ?: return emptyList()
+        // Phone bumps while parked or in a slow manoeuvre are not crashes.
+        if (fix.speedMps < thresholds.minSpeedMps) return emptyList()
+        if (ts - fix.ts > thresholds.maxFixAgeMs) return emptyList()
+
         val out = mutableListOf<DrivingEvent>()
-        val fix = lastFix
-        emit(
-            out,
-            "crash",
-            ts,
-            fix?.lat,
-            fix?.lon,
-            fix?.let { it.speedMps * 3.6 },
-            magnitudeMps2,
-        )
+        emit(out, "crash", ts, fix.lat, fix.lon, fix.speedMps * 3.6, magnitudeMps2)
         return out
+    }
+
+    private fun headingChangeRadPerSec(from: Double?, to: Double?, dtSec: Double): Double? {
+        if (from == null || to == null) return null
+        // Smallest signed difference between two compass bearings, in degrees.
+        val diff = ((to - from + 540.0) % 360.0) - 180.0
+        return Math.toRadians(abs(diff)) / dtSec
     }
 
     private fun emit(

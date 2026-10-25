@@ -116,9 +116,6 @@ class MonitorService : Service(), SensorEventListener {
         sensors.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)?.let {
             sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
-        sensors.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
-            sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
-        }
     }
 
     private fun onLocation(location: Location) {
@@ -130,20 +127,17 @@ class MonitorService : Service(), SensorEventListener {
             lastPositionAt = location.time
             queue.add(positionQueueItem(location.time, location.latitude, location.longitude, kmh))
         }
-        detector.onLocation(location.time, location.latitude, location.longitude, speedMps)
+        val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
+        detector.onLocation(location.time, location.latitude, location.longitude, speedMps, bearing)
             .forEach { queue.add(it.toQueueItem()) }
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        when (event.sensor.type) {
-            Sensor.TYPE_GYROSCOPE -> detector.onGyro(event.values[2].toDouble())
-            Sensor.TYPE_LINEAR_ACCELERATION -> {
-                val v = event.values
-                val magnitude = sqrt((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).toDouble())
-                detector.onLinearAcceleration(System.currentTimeMillis(), magnitude)
-                    .forEach { queue.add(it.toQueueItem()) }
-            }
-        }
+        if (event.sensor.type != Sensor.TYPE_LINEAR_ACCELERATION) return
+        val v = event.values
+        val magnitude = sqrt((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).toDouble())
+        detector.onLinearAcceleration(System.currentTimeMillis(), magnitude)
+            .forEach { queue.add(it.toQueueItem()) }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
