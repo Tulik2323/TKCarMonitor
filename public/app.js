@@ -8,6 +8,13 @@ const TYPES = {
   speeding: { label: 'מעל המהירות המותרת' },
   crash: { label: 'פגיעה (חשד לתאונה)' },
 };
+const TYPE_COLORS = {
+  hard_brake: '#dc2626',
+  hard_accel: '#ea580c',
+  sharp_turn: '#7c3aed',
+  speeding: '#ca8a04',
+  crash: '#b91c1c',
+};
 const TOKEN_KEY = 'tkcarmonitor.token';
 const POLL_MS = 30_000;
 const $ = (id) => document.getElementById(id);
@@ -23,6 +30,7 @@ const state = {
   map: null,
   marker: null,
   track: null,
+  eventLayer: null,
   timer: null,
 };
 
@@ -156,28 +164,57 @@ function renderMap() {
   if (!state.map) return;
   const hasPositions = state.positions.length > 0;
   $('map-empty').classList.toggle('hidden', hasPositions);
+
   if (!hasPositions) {
     state.track.setLatLngs([]);
     if (state.marker) state.marker.remove();
     state.marker = null;
-    return;
-  }
-
-  const points = state.positions.map((p) => [p.lat, p.lon]);
-  state.track.setLatLngs(points);
-  const last = points[points.length - 1];
-  if (!state.marker) {
-    state.marker = L.marker(last).addTo(state.map);
   } else {
-    state.marker.setLatLng(last);
-  }
+    const points = state.positions.map((p) => [p.lat, p.lon]);
+    state.track.setLatLngs(points);
+    const last = points[points.length - 1];
+    if (!state.marker) {
+      state.marker = L.marker(last).addTo(state.map);
+    } else {
+      state.marker.setLatLng(last);
+    }
 
-  if (state.day) {
-    // A past day shows its whole route, not just the last point.
-    state.map.fitBounds(state.track.getBounds(), { padding: [24, 24], maxZoom: 15 });
-  } else {
-    state.map.setView(last, 15);
+    // Frame the route and any located events together, so the markers are on screen.
+    const located = state.events.filter((e) => e.lat !== null && e.lon !== null).map((e) => [e.lat, e.lon]);
+    if (state.day || located.length > 0) {
+      state.map.fitBounds(L.latLngBounds([...points, ...located]), { padding: [24, 24], maxZoom: 15 });
+    } else {
+      state.map.setView(last, 15);
+    }
   }
+  renderEventMarkers();
+}
+
+// One dot per event that has a location, following the current filter.
+// Events without a fix (for example a fix that never came) are skipped.
+function renderEventMarkers() {
+  state.eventLayer.clearLayers();
+  const shown = state.events.filter((e) => e.lat !== null && e.lon !== null && (!state.filter || e.type === state.filter));
+  for (const e of shown) {
+    const dot = L.circleMarker([e.lat, e.lon], {
+      radius: 7,
+      color: '#fff',
+      weight: 2,
+      fillColor: TYPE_COLORS[e.type] || '#6b7280',
+      fillOpacity: 1,
+    });
+    dot.bindPopup(eventPopup(e));
+    state.eventLayer.addLayer(dot);
+  }
+}
+
+function eventPopup(e) {
+  const box = el('div', 'map-popup');
+  box.append(el('strong', null, TYPES[e.type]?.label || e.type));
+  const details = describe(e).join(' · ');
+  if (details) box.append(el('div', null, details));
+  box.append(el('div', 'map-popup-time', formatDateTime(e.ts)));
+  return box;
 }
 
 function renderStatus() {
@@ -296,6 +333,9 @@ function showApp() {
       attribution: '&copy; OpenStreetMap',
     }).addTo(state.map);
     state.track = L.polyline([], { color: '#2563eb' }).addTo(state.map);
+    state.eventLayer = L.layerGroup().addTo(state.map);
+    // The data may have loaded before the map existed, so draw it now.
+    render();
   }
 }
 

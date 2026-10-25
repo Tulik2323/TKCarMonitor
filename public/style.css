@@ -273,3 +273,6 @@ input[type="date"], input[type="password"] {
   .day-center { grid-column: 1 / -1; order: -1; }
   .day-buttons { display: contents; }
 }
+
+.map-popup { font-size: 0.85rem; line-height: 1.4; min-width: 140px; }
+.map-popup-time { color: #6b7280; margin-top: 2px; }
