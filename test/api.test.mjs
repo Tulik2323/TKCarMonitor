@@ -219,3 +219,32 @@ test('unknown paths return 404', async () => {
   const { call } = setup();
   assert.equal((await call('GET', '/api/nope', { token: DASHBOARD })).status, 404);
 });
+
+test('delete removes only the events in the window and keeps positions', async () => {
+  const { call } = setup();
+  const day1 = Date.UTC(2026, 9, 24, 12);
+  const day2 = Date.UTC(2026, 9, 25, 12);
+  await call('POST', '/api/telemetry', {
+    token: DEVICE,
+    body: {
+      events: [event({ id: 'old', ts: day1 }), event({ id: 'new', ts: day2 })],
+      positions: [{ ts: day2, lat: 32.1, lon: 34.8 }],
+    },
+  });
+
+  const from = Date.UTC(2026, 9, 25, 0);
+  const to = Date.UTC(2026, 9, 25, 23, 59, 59, 999);
+  const res = await call('DELETE', `/api/events?from=${from}&to=${to}`, { token: DASHBOARD });
+  assert.deepEqual(await res.json(), { removed: 1 });
+
+  const sync = await (await call('GET', `/api/sync?from=${day1 - DAY}&to=${to}`, { token: DASHBOARD })).json();
+  assert.deepEqual(sync.events.map((e) => e.id), ['old']);
+  assert.equal(sync.positions.length, 1);
+});
+
+test('delete requires the dashboard token and a valid window', async () => {
+  const { call } = setup();
+  assert.equal((await call('DELETE', '/api/events?from=1&to=2', { token: DEVICE })).status, 401);
+  assert.equal((await call('DELETE', '/api/events?from=5&to=2', { token: DASHBOARD })).status, 400);
+  assert.equal((await call('DELETE', '/api/events?from=abc&to=2', { token: DASHBOARD })).status, 400);
+});

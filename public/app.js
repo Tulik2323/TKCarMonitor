@@ -8,6 +8,13 @@ const TYPES = {
   speeding: { label: 'מעל המהירות המותרת' },
   crash: { label: 'פגיעה (חשד לתאונה)' },
 };
+const TYPE_COLORS = {
+  hard_brake: '#dc2626',
+  hard_accel: '#ea580c',
+  sharp_turn: '#7c3aed',
+  speeding: '#ca8a04',
+  crash: '#b91c1c',
+};
 const TOKEN_KEY = 'tkcarmonitor.token';
 const POLL_MS = 30_000;
 const $ = (id) => document.getElementById(id);
@@ -23,6 +30,7 @@ const state = {
   map: null,
   marker: null,
   track: null,
+  eventLayer: null,
   timer: null,
 };
 
@@ -107,6 +115,7 @@ function renderSummary() {
   const speeds = state.positions.map((p) => p.speedKmh).filter((v) => typeof v === 'number');
   const first = state.positions[0];
   const last = state.positions[state.positions.length - 1];
+  $('clear-day').disabled = state.events.length === 0;
   $('stat-events').textContent = state.events.length;
   $('stat-max-speed').textContent = speeds.length ? `${Math.round(Math.max(...speeds))} קמ"ש` : '—';
   $('stat-start').textContent = first ? formatClock(first.ts) : '—';
@@ -156,28 +165,57 @@ function renderMap() {
   if (!state.map) return;
   const hasPositions = state.positions.length > 0;
   $('map-empty').classList.toggle('hidden', hasPositions);
+
   if (!hasPositions) {
     state.track.setLatLngs([]);
     if (state.marker) state.marker.remove();
     state.marker = null;
-    return;
-  }
-
-  const points = state.positions.map((p) => [p.lat, p.lon]);
-  state.track.setLatLngs(points);
-  const last = points[points.length - 1];
-  if (!state.marker) {
-    state.marker = L.marker(last).addTo(state.map);
   } else {
-    state.marker.setLatLng(last);
-  }
+    const points = state.positions.map((p) => [p.lat, p.lon]);
+    state.track.setLatLngs(points);
+    const last = points[points.length - 1];
+    if (!state.marker) {
+      state.marker = L.marker(last).addTo(state.map);
+    } else {
+      state.marker.setLatLng(last);
+    }
 
-  if (state.day) {
-    // A past day shows its whole route, not just the last point.
-    state.map.fitBounds(state.track.getBounds(), { padding: [24, 24], maxZoom: 15 });
-  } else {
-    state.map.setView(last, 15);
+    // Frame the route and any located events together, so the markers are on screen.
+    const located = state.events.filter((e) => e.lat !== null && e.lon !== null).map((e) => [e.lat, e.lon]);
+    if (state.day || located.length > 0) {
+      state.map.fitBounds(L.latLngBounds([...points, ...located]), { padding: [24, 24], maxZoom: 15 });
+    } else {
+      state.map.setView(last, 15);
+    }
   }
+  renderEventMarkers();
+}
+
+// One dot per event that has a location, following the current filter.
+// Events without a fix (for example a fix that never came) are skipped.
+function renderEventMarkers() {
+  state.eventLayer.clearLayers();
+  const shown = state.events.filter((e) => e.lat !== null && e.lon !== null && (!state.filter || e.type === state.filter));
+  for (const e of shown) {
+    const dot = L.circleMarker([e.lat, e.lon], {
+      radius: 7,
+      color: '#fff',
+      weight: 2,
+      fillColor: TYPE_COLORS[e.type] || '#6b7280',
+      fillOpacity: 1,
+    });
+    dot.bindPopup(eventPopup(e));
+    state.eventLayer.addLayer(dot);
+  }
+}
+
+function eventPopup(e) {
+  const box = el('div', 'map-popup');
+  box.append(el('strong', null, TYPES[e.type]?.label || e.type));
+  const details = describe(e).join(' · ');
+  if (details) box.append(el('div', null, details));
+  box.append(el('div', 'map-popup-time', formatDateTime(e.ts)));
+  return box;
 }
 
 function renderStatus() {
@@ -285,6 +323,31 @@ async function showDay(dayString) {
   applyDay(await sync({ from, to }));
 }
 
+// Deletes the events in a time window on the server. Returns how many were removed.
+async function deleteEvents(from, to) {
+  const res = await fetch(`/api/events?from=${from}&to=${to}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (res.status === 401) {
+    logout();
+    throw new Error('unauthorized');
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()).removed;
+}
+
+// Deletes the events of the day on screen. Positions and the route stay.
+async function clearDayEvents() {
+  const day = state.day || localDayString();
+  const label = formatDay(day);
+  if (!window.confirm(`למחוק את כל האירועים של ${label}?\nאי אפשר לבטל את הפעולה. המסלול על המפה לא יימחק.`)) return;
+  const { from, to } = dayBounds(day);
+  await deleteEvents(from, to);
+  // Reload the same view so the list, counts and markers match the server.
+  await (state.day ? showDay(state.day) : showLive());
+}
+
 function showApp() {
   $('login').classList.add('hidden');
   $('app').classList.remove('hidden');
@@ -296,6 +359,9 @@ function showApp() {
       attribution: '&copy; OpenStreetMap',
     }).addTo(state.map);
     state.track = L.polyline([], { color: '#2563eb' }).addTo(state.map);
+    state.eventLayer = L.layerGroup().addTo(state.map);
+    // The data may have loaded before the map existed, so draw it now.
+    render();
   }
 }
 
@@ -347,6 +413,9 @@ $('next-day').addEventListener('click', () => {
 });
 $('today').addEventListener('click', () => {
   showLive().catch(() => {});
+});
+$('clear-day').addEventListener('click', () => {
+  clearDayEvents().catch(() => {});
 });
 
 (async function init() {

@@ -193,6 +193,16 @@ input[type="date"], input[type="password"] {
 
 /* Filter chips */
 
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.section-head h2 { margin: 0; }
+button.ghost.danger { color: var(--danger); border-color: var(--danger); }
+
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 
 .chip {
@@ -273,3 +283,8 @@ input[type="date"], input[type="password"] {
   .day-center { grid-column: 1 / -1; order: -1; }
   .day-buttons { display: contents; }
 }
+
+.version { display: block; text-align: center; color: var(--muted); font-size: 0.8rem; padding: 8px 0 4px; }
+
+.map-popup { font-size: 0.85rem; line-height: 1.4; min-width: 140px; }
+.map-popup-time { color: #6b7280; margin-top: 2px; }
