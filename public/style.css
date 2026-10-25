@@ -193,6 +193,16 @@ input[type="date"], input[type="password"] {
 
 /* Filter chips */
 
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.section-head h2 { margin: 0; }
+button.ghost.danger { color: var(--danger); border-color: var(--danger); }
+
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 
 .chip {

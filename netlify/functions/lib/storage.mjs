@@ -72,6 +72,22 @@ export function createStorage(blobs) {
     setStatus: (status) => blobs.setJSON(STATUS_KEY, { ...status, receivedAt: Date.now() }),
     readStatus: async () => (await blobs.get(STATUS_KEY, { type: 'json' })) ?? null,
 
+    // Removes events whose time is within [fromTs, toTs]. Positions are kept.
+    // Returns how many events were removed.
+    async removeEvents(fromTs, toTs) {
+      let removed = 0;
+      for (const day of daysBetween(fromTs, toTs)) {
+        const key = `events/${day}`;
+        const existing = await readDay(key);
+        const kept = existing.filter((e) => e.ts < fromTs || e.ts > toTs);
+        if (kept.length !== existing.length) {
+          await blobs.setJSON(key, kept);
+          removed += existing.length - kept.length;
+        }
+      }
+      return removed;
+    },
+
     readEvents: (sinceTs, untilTs = Date.now()) => readRange('events', sinceTs, untilTs),
     readPositions: (sinceTs, untilTs = Date.now()) => readRange('positions', sinceTs, untilTs),
 

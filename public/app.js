@@ -115,6 +115,7 @@ function renderSummary() {
   const speeds = state.positions.map((p) => p.speedKmh).filter((v) => typeof v === 'number');
   const first = state.positions[0];
   const last = state.positions[state.positions.length - 1];
+  $('clear-day').disabled = state.events.length === 0;
   $('stat-events').textContent = state.events.length;
   $('stat-max-speed').textContent = speeds.length ? `${Math.round(Math.max(...speeds))} קמ"ש` : '—';
   $('stat-start').textContent = first ? formatClock(first.ts) : '—';
@@ -322,6 +323,31 @@ async function showDay(dayString) {
   applyDay(await sync({ from, to }));
 }
 
+// Deletes the events in a time window on the server. Returns how many were removed.
+async function deleteEvents(from, to) {
+  const res = await fetch(`/api/events?from=${from}&to=${to}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (res.status === 401) {
+    logout();
+    throw new Error('unauthorized');
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()).removed;
+}
+
+// Deletes the events of the day on screen. Positions and the route stay.
+async function clearDayEvents() {
+  const day = state.day || localDayString();
+  const label = formatDay(day);
+  if (!window.confirm(`למחוק את כל האירועים של ${label}?\nאי אפשר לבטל את הפעולה. המסלול על המפה לא יימחק.`)) return;
+  const { from, to } = dayBounds(day);
+  await deleteEvents(from, to);
+  // Reload the same view so the list, counts and markers match the server.
+  await (state.day ? showDay(state.day) : showLive());
+}
+
 function showApp() {
   $('login').classList.add('hidden');
   $('app').classList.remove('hidden');
@@ -387,6 +413,9 @@ $('next-day').addEventListener('click', () => {
 });
 $('today').addEventListener('click', () => {
   showLive().catch(() => {});
+});
+$('clear-day').addEventListener('click', () => {
+  clearDayEvents().catch(() => {});
 });
 
 (async function init() {

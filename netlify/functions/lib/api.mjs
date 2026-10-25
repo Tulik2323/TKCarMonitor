@@ -59,6 +59,19 @@ async function handleTelemetry(req, { storage, deviceToken }) {
   });
 }
 
+// Deletes the events in a time window (the dashboard sends one local day). Dashboard only.
+async function handleDeleteEvents(req, url, { storage, dashboardToken }) {
+  const denied = checkAuth(req, dashboardToken);
+  if (denied) return denied;
+
+  const from = Number(url.searchParams.get('from'));
+  const to = Number(url.searchParams.get('to'));
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from <= 0 || to < from) {
+    return json(400, { error: 'from and to must be epoch ms, with from <= to' });
+  }
+  return json(200, { removed: await storage.removeEvents(from, to) });
+}
+
 // One dashboard request returns events, positions and status for a time window.
 // - Live view: the first call uses the defaults; later polls pass eventsSince / positionsSince.
 // - Past day: the dashboard passes from and to, which apply to both events and positions.
@@ -87,6 +100,7 @@ export async function handleRequest(req, deps) {
   try {
     if (req.method === 'POST' && url.pathname === '/api/telemetry') return await handleTelemetry(req, deps);
     if (req.method === 'GET' && url.pathname === '/api/sync') return await handleSync(req, url, deps);
+    if (req.method === 'DELETE' && url.pathname === '/api/events') return await handleDeleteEvents(req, url, deps);
     return json(404, { error: 'not found' });
   } catch (err) {
     return json(err.status || 500, { error: err.status ? err.message : 'internal error' });
