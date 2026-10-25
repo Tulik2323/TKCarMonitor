@@ -8,58 +8,73 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header>
-    <h1>ניטור נהיגה</h1>
-    <div id="connection" class="pill">לא מחובר</div>
+  <header class="top">
+    <div>
+      <h1>ניטור נהיגה</h1>
+      <p id="day-label" class="sub">היום</p>
+    </div>
+    <div class="top-actions">
+      <span id="connection" class="pill">לא מחובר</span>
+      <button id="logout" type="button" class="ghost hidden">יציאה</button>
+    </div>
   </header>
 
-  <section id="login" class="card hidden">
-    <h2>כניסה</h2>
-    <form id="login-form">
+  <section id="login" class="login hidden">
+    <form id="login-form" class="card login-card">
+      <h2>כניסה לדשבורד</h2>
       <input id="token-input" type="password" placeholder="סיסמת דשבורד" autocomplete="current-password" required>
       <button type="submit">כניסה</button>
+      <p id="login-error" class="error hidden">הסיסמה שגויה</p>
     </form>
-    <p id="login-error" class="error hidden">הסיסמה שגויה</p>
   </section>
 
   <main id="app" class="hidden">
-    <section class="card status">
-      <div><span class="label">דיווח אחרון</span><span id="last-seen">—</span></div>
-      <div><span class="label">סוללת מכשיר</span><span id="battery">—</span></div>
-      <div><span class="label">GPS אחרון</span><span id="last-fix">—</span></div>
-      <button id="logout" class="link">התנתק</button>
-    </section>
-
-    <section class="card day-picker">
-      <div>
-        <h2>תאריך</h2>
-        <span id="day-label" class="label">היום (בזמן אמת)</span>
-      </div>
-      <div class="day-controls">
+    <section class="card day-nav">
+      <button id="prev-day" type="button" class="ghost">יום קודם</button>
+      <div class="day-center">
         <input id="day" type="date" aria-label="בחירת תאריך">
-        <button id="today" type="button" class="link hidden">חזרה להיום</button>
+      </div>
+      <div class="day-buttons">
+        <button id="next-day" type="button" class="ghost">יום הבא</button>
+        <button id="today" type="button" class="ghost hidden">להיום</button>
       </div>
     </section>
 
-    <section class="card">
+    <section class="stats">
+      <div class="card stat">
+        <span class="label">אירועים</span>
+        <strong id="stat-events">0</strong>
+      </div>
+      <div class="card stat">
+        <span class="label">מהירות מקסימלית</span>
+        <strong id="stat-max-speed">—</strong>
+      </div>
+      <div class="card stat">
+        <span class="label">תחילת נסיעה</span>
+        <strong id="stat-start">—</strong>
+      </div>
+      <div class="card stat">
+        <span class="label">מיקום אחרון</span>
+        <strong id="stat-end">—</strong>
+      </div>
+    </section>
+
+    <section class="card device">
+      <div><span class="label">דיווח אחרון מהטלפון</span><span id="last-seen">—</span></div>
+      <div><span class="label">GPS אחרון</span><span id="last-fix">—</span></div>
+      <div><span class="label">סוללת הטלפון</span><span id="battery">—</span></div>
+    </section>
+
+    <section class="card map-card">
       <div id="map"></div>
-      <p id="map-empty" class="hidden">אין מיקומים ביום הזה</p>
+      <p id="map-empty" class="empty hidden">אין מיקומים ביום הזה</p>
     </section>
 
     <section class="card">
-      <div class="toolbar">
-        <h2>אירועים</h2>
-        <select id="filter">
-          <option value="">הכל</option>
-          <option value="hard_brake">בלימה פתאומית</option>
-          <option value="hard_accel">האצה חזקה</option>
-          <option value="sharp_turn">פנייה חדה / החלקה</option>
-          <option value="speeding">מהירות מעל הגבול</option>
-          <option value="crash">תאונה / פגיעה</option>
-        </select>
-      </div>
-      <ul id="events" class="events"></ul>
-      <p id="empty" class="hidden">אין אירועים להצגה</p>
+      <h2>אירועים</h2>
+      <div id="filters" class="chips" role="group" aria-label="סינון לפי סוג אירוע"></div>
+      <ul id="events" class="timeline"></ul>
+      <p id="empty" class="empty hidden">אין אירועים להצגה</p>
     </section>
   </main>
 

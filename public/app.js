@@ -1,13 +1,13 @@
 'use strict';
 
-const TYPE_LABELS = {
-  hard_brake: 'בלימה פתאומית',
-  hard_accel: 'האצה חזקה',
-  sharp_turn: 'פנייה חדה / החלקה',
-  speeding: 'מהירות מעל הגבול',
-  crash: 'תאונה / פגיעה',
+const GRAVITY = 9.80665;
+const TYPES = {
+  hard_brake: { label: 'בלימה חזקה' },
+  hard_accel: { label: 'האצה חזקה' },
+  sharp_turn: { label: 'פנייה חדה' },
+  speeding: { label: 'מעל המהירות המותרת' },
+  crash: { label: 'פגיעה (חשד לתאונה)' },
 };
-
 const TOKEN_KEY = 'tkcarmonitor.token';
 const POLL_MS = 30_000;
 const $ = (id) => document.getElementById(id);
@@ -16,6 +16,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   token: null,
   day: null,
+  filter: '',
   events: [],
   positions: [],
   status: null,
@@ -71,46 +72,82 @@ function dayBounds(dayString) {
   return { from: start.getTime(), to: end.getTime() - 1 };
 }
 
-function formatTime(ts) {
-  return new Date(ts).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'medium' });
-}
-
-function formatDay(dayString) {
+function shiftDay(dayString, delta) {
   const [y, m, d] = dayString.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('he-IL', { dateStyle: 'long' });
+  return localDayString(new Date(y, m - 1, d + delta));
 }
 
+function formatClock(ts) {
+  return new Date(ts).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatDateTime(ts) {
+  return new Date(ts).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// The numbers shown under each event. Speed is left out when the fix had none.
 function describe(e) {
   const parts = [];
   if (e.speedKmh !== null) parts.push(`${Math.round(e.speedKmh)} קמ"ש`);
   if (e.value !== null) {
-    if (e.type === 'speeding') parts.push(`מעל הגבול ב-${Math.round(e.value)} קמ"ש`);
-    else parts.push(`${(e.value / 9.81).toFixed(e.type === 'crash' ? 1 : 2)}g`);
+    if (e.type === 'speeding') parts.push(`+${Math.round(e.value)} מעל הגבול`);
+    else parts.push(`${(e.value / GRAVITY).toFixed(2)} g`);
   }
-  return parts.join(' · ');
+  return parts;
+}
+
+function renderSummary() {
+  const speeds = state.positions.map((p) => p.speedKmh).filter((v) => typeof v === 'number');
+  const first = state.positions[0];
+  const last = state.positions[state.positions.length - 1];
+  $('stat-events').textContent = state.events.length;
+  $('stat-max-speed').textContent = speeds.length ? `${Math.round(Math.max(...speeds))} קמ"ש` : '—';
+  $('stat-start').textContent = first ? formatClock(first.ts) : '—';
+  $('stat-end').textContent = last ? formatClock(last.ts) : '—';
+}
+
+function renderFilters() {
+  const counts = { '': state.events.length };
+  for (const e of state.events) counts[e.type] = (counts[e.type] || 0) + 1;
+
+  const box = $('filters');
+  box.innerHTML = '';
+  const options = [['', 'הכל'], ...Object.entries(TYPES).map(([type, { label }]) => [type, label])];
+  for (const [type, label] of options) {
+    const chip = el('button', `chip ${type}`, label);
+    chip.type = 'button';
+    chip.setAttribute('aria-pressed', String(state.filter === type));
+    chip.append(el('span', 'chip-count', String(counts[type] || 0)));
+    chip.addEventListener('click', () => {
+      state.filter = type;
+      render();
+    });
+    box.append(chip);
+  }
 }
 
 function renderEvents() {
-  const filter = $('filter').value;
   const list = $('events');
   list.innerHTML = '';
-  const shown = state.events.filter((e) => !filter || e.type === filter);
+  const shown = state.events.filter((e) => !state.filter || e.type === state.filter);
   $('empty').classList.toggle('hidden', shown.length > 0);
 
   for (const e of shown) {
-    const li = document.createElement('li');
-    const info = document.createElement('div');
-    const type = document.createElement('div');
-    type.className = `event-type ${e.type}`;
-    type.textContent = TYPE_LABELS[e.type] || e.type;
-    const meta = document.createElement('div');
-    meta.className = 'event-meta';
-    meta.textContent = describe(e);
-    info.append(type, meta);
-    const time = document.createElement('div');
-    time.className = 'event-time';
-    time.textContent = formatTime(e.ts);
-    li.append(info, time);
+    const li = el('li', `event ${e.type}`);
+    const body = el('div', 'event-body');
+    const chips = el('div', 'event-chips');
+    for (const text of describe(e)) chips.append(el('span', 'event-chip', text));
+    body.append(el('div', 'event-title', TYPES[e.type]?.label || e.type), chips);
+    const time = el('time', 'event-time', formatClock(e.ts));
+    time.dateTime = new Date(e.ts).toISOString();
+    li.append(body, time);
     list.append(li);
   }
 }
@@ -146,18 +183,26 @@ function renderMap() {
 function renderStatus() {
   const status = state.status;
   if (!status) return;
-  $('last-seen').textContent = formatTime(status.receivedAt);
+  $('last-seen').textContent = formatDateTime(status.receivedAt);
   $('battery').textContent = status.battery === null ? '—' : `${status.battery}%`;
-  $('last-fix').textContent = status.lastFixAt ? formatTime(status.lastFixAt) : '—';
+  $('last-fix').textContent = status.lastFixAt ? formatDateTime(status.lastFixAt) : '—';
   // The device uploads about every 10 seconds while driving; 3 minutes of silence means it is offline.
   const online = Date.now() - status.receivedAt < 3 * 60 * 1000;
   $('connection').textContent = online ? 'מחובר' : 'לא מחובר';
   $('connection').classList.toggle('online', online);
 }
 
-function renderDayLabel() {
-  $('day-label').textContent = state.day ? formatDay(state.day) : 'היום (בזמן אמת)';
+function renderDayControls() {
+  $('day-label').textContent = state.day ? formatDay(state.day) : 'היום · בזמן אמת';
   $('today').classList.toggle('hidden', !state.day);
+  // Nothing after today.
+  $('next-day').disabled = state.day === null;
+  $('day').value = state.day || localDayString();
+}
+
+function formatDay(dayString) {
+  const [y, m, d] = dayString.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // Adds new rows, skipping ones already shown (the same event can come back in two polls).
@@ -168,12 +213,14 @@ function merge(current, incoming, keyOf) {
 }
 
 function render() {
-  state.events = state.events.sort((a, b) => b.ts - a.ts);
-  state.positions = state.positions.sort((a, b) => a.ts - b.ts);
+  state.events.sort((a, b) => b.ts - a.ts);
+  state.positions.sort((a, b) => a.ts - b.ts);
+  renderSummary();
+  renderFilters();
   renderEvents();
   renderStatus();
   renderMap();
-  renderDayLabel();
+  renderDayControls();
 }
 
 function applyLive(data) {
@@ -190,13 +237,18 @@ function applyDay(data) {
   render();
 }
 
+// Live mode only shows today. The server defaults to 14 days, so every request
+// passes today's start, otherwise an empty list would pull old events back in.
 async function poll() {
-  const params = {};
+  const todayStart = dayBounds(localDayString()).from;
   const newestEvent = state.events[0];
   const newestPosition = state.positions[state.positions.length - 1];
-  if (newestEvent) params.eventsSince = newestEvent.ts + 1;
-  if (newestPosition) params.positionsSince = newestPosition.ts + 1;
-  applyLive(await sync(params));
+  applyLive(
+    await sync({
+      eventsSince: newestEvent ? newestEvent.ts + 1 : todayStart,
+      positionsSince: newestPosition ? newestPosition.ts + 1 : todayStart,
+    }),
+  );
 }
 
 function startPolling() {
@@ -218,9 +270,9 @@ async function showLive() {
   state.day = null;
   state.events = [];
   state.positions = [];
-  $('day').value = localDayString();
+  const todayStart = dayBounds(localDayString()).from;
   $('day').max = localDayString();
-  applyLive(await sync());
+  applyLive(await sync({ eventsSince: todayStart, positionsSince: todayStart }));
   startPolling();
 }
 
@@ -236,6 +288,7 @@ async function showDay(dayString) {
 function showApp() {
   $('login').classList.add('hidden');
   $('app').classList.remove('hidden');
+  $('logout').classList.remove('hidden');
   if (!state.map && window.L) {
     state.map = L.map('map').setView([32.08, 34.78], 12);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -272,6 +325,7 @@ function logout() {
   state.token = null;
   stopPolling();
   $('app').classList.add('hidden');
+  $('logout').classList.add('hidden');
   $('login').classList.remove('hidden');
 }
 
@@ -282,9 +336,14 @@ $('login-form').addEventListener('submit', async (ev) => {
 });
 
 $('logout').addEventListener('click', logout);
-$('filter').addEventListener('change', renderEvents);
 $('day').addEventListener('change', (ev) => {
   if (ev.target.value) showDay(ev.target.value).catch(() => {});
+});
+$('prev-day').addEventListener('click', () => {
+  showDay(shiftDay(state.day || localDayString(), -1)).catch(() => {});
+});
+$('next-day').addEventListener('click', () => {
+  showDay(shiftDay(state.day, 1)).catch(() => {});
 });
 $('today').addEventListener('click', () => {
   showLive().catch(() => {});
